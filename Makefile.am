@@ -82,6 +82,7 @@ scripts = \
 
 EXTRA_DIST = \
 	include/auto/README		\
+	schism/charset_data.c   \
 	$(docs)	\
 	$(helptexts)			\
 	$(fonts)			\
@@ -185,13 +186,18 @@ files_win32 = \
 cflags_win32=-I$(srcdir)/sys/win32
 lib_win32=-lwinmm
 
+if USE_MEDIAFOUNDATION
+files_mediafoundation=fmt/win32mf.c
+lib_mediafoundation=-lmf -lmfuuid -lmfplat -lpropsys -lole32 -lshlwapi
+endif
+
 if HAVE_WINDRES
 
 ## use today's date if we didn't get a commit date from git
 if HAVE_GIT
-wrcflags_version = -DWRC_VERSION=0,`echo '$(PACKAGE_VERSION)' | sed 's/\(....\)\(..\)\(..\).*/\1,\2,\3/'`
+wrcflags_version = -DWRC_VERSION=0,`echo '$(PACKAGE_VERSION)' | sed 's/\(....\)\(..\)\(..\).*/\1,\2,\3/' | sed 's/,0\+/,/g'`
 else
-wrcflags_version = -DWRC_VERSION=0,`date +%Y%m%d | sed 's/\(....\)\(..\)\(..\).*/\1,\2,\3/'`
+wrcflags_version = -DWRC_VERSION=0,`date +%Y%m%d | sed 's/\(....\)\(..\)\(..\).*/\1,\2,\3/' | sed 's/,0\+/,/g'`
 endif # HAVE_GIT
 
 ## --use-temp-file is needed to work around stupid bugs
@@ -322,6 +328,7 @@ schismtracker_SOURCES = \
 	fmt/s3m.c			\
 	fmt/sfx.c			\
 	fmt/stm.c			\
+	fmt/stx.c			\
 	fmt/ult.c			\
 	fmt/wav.c			\
 	fmt/xi.c			\
@@ -383,7 +390,8 @@ schismtracker_SOURCES = \
 	$(files_windres)		\
 	$(files_flac)			\
 	$(files_jack)			\
-	$(files_opl)
+	$(files_opl)			\
+	$(files_mediafoundation)
 
 # have version.o rely on all files
 schism/version.$(OBJEXT): $(filter-out schism/version.$(OBJEXT),$(schismtracker_OBJECTS)) $(HEADERS)
@@ -396,4 +404,4 @@ schismtracker_CFLAGS = $(SDL_CFLAGS) $(cflags_alsa) $(cflags_oss) \
 schismtracker_OBJCFLAGS = $(schismtracker_CFLAGS)
 
 schismtracker_DEPENDENCIES = $(files_windres)
-schismtracker_LDADD = $(LIB_MATH) $(libs_jack) $(libs_macosx) $(lib_asound) $(lib_win32) $(libs_network) $(libs_flac) $(SDL_LIBS)
+schismtracker_LDADD = $(LIB_MATH) $(libs_jack) $(libs_macosx) $(lib_asound) $(lib_win32) $(libs_network) $(libs_flac) $(lib_mediafoundation) $(SDL_LIBS)

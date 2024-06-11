@@ -64,6 +64,12 @@
 #define NATIVE_SCREEN_WIDTH     640
 #define NATIVE_SCREEN_HEIGHT    400
 
+/* need to redefine these on SDL < 2.0.4 */
+#if !SDL_VERSION_ATLEAST(2, 0, 4)
+#define SDL_AUDIODEVICEADDED (0x1100)
+#define SDL_AUDIODEVICEREMOVED (0x1101)
+#endif
+
 /* --------------------------------------------------------------------- */
 /* globals */
 
@@ -76,6 +82,7 @@ static int shutdown_process = 0;
 
 static const char *video_driver = NULL;
 static const char *audio_driver = NULL;
+static const char *audio_device = NULL;
 static int did_fullscreen = 0;
 static int did_classic = 0;
 
@@ -290,7 +297,7 @@ static void parse_options(int argc, char **argv)
 	while ((opt = getopt_long(argc, argv, SHORT_OPTIONS, long_options, NULL)) != -1) {
 		switch (opt) {
 		case O_SDL_AUDIODRIVER:
-			audio_driver = str_dup(optarg);
+			audio_parse_driver_spec(optarg, (char**)&audio_driver, (char**)&audio_device);
 			break;
 		case O_SDL_VIDEODRIVER:
 			video_driver = str_dup(optarg);
@@ -490,14 +497,12 @@ static void event_loop(void)
 	SDL_Keycode last_key = 0;
 	int modkey;
 	time_t startdown;
-#ifdef os_screensaver_deactivate
-	time_t last_ss;
-#endif
 	int downtrip;
 	int wheel_x;
 	int wheel_y;
 	int sawrep;
 	int fix_numlock_key;
+	int screensaver;
 	struct key_event kk;
 
 	fix_numlock_key = status.fix_numlock_setting;
@@ -511,9 +516,9 @@ static void event_loop(void)
 	os_get_modkey(&modkey);
 	SDL_SetModState(modkey);
 
-#ifdef os_screensaver_deactivate
-	time(&last_ss);
-#endif
+	SDL_EnableScreenSaver();
+	screensaver = 1;
+
 	time(&status.now);
 	localtime_r(&status.now, &status.tmnow);
 	for (;;) {
@@ -538,6 +543,11 @@ static void event_loop(void)
 				}
 			}
 			switch (event.type) {
+			case SDL_AUDIODEVICEADDED:
+			case SDL_AUDIODEVICEREMOVED:
+				refresh_audio_device_list();
+				status.flags |= NEED_UPDATE;
+				break;
 #if defined(SCHISM_WIN32)
 #define _ALTTRACKED_KMOD        (KMOD_NUM|KMOD_CAPS)
 #else
@@ -881,14 +891,16 @@ static void event_loop(void)
 		switch (song_get_mode()) {
 		case MODE_PLAYING:
 		case MODE_PATTERN_LOOP:
-#ifdef os_screensaver_deactivate
-			if ((status.now-last_ss) > 14) {
-				last_ss=status.now;
-				os_screensaver_deactivate();
+			if (screensaver) {
+				SDL_DisableScreenSaver();
+				screensaver = 0;
 			}
-#endif
 			break;
 		default:
+			if (!screensaver) {
+				SDL_EnableScreenSaver();
+				screensaver = 1;
+			}
 			break;
 		};
 
@@ -969,6 +981,8 @@ int main(int argc, char **argv)
 
 	vis_init();
 
+	ver_init();
+
 	video_fullscreen(0);
 
 	tzset(); // localtime_r wants this
@@ -1018,7 +1032,7 @@ int main(int argc, char **argv)
 	font_init();
 	midi_engine_start();
 	log_nl();
-	audio_init(audio_driver);
+	audio_init(audio_driver, audio_device);
 	song_init_modplug();
 
 #ifndef SCHISM_WIN32
