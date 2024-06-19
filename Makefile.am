@@ -82,7 +82,6 @@ scripts = \
 
 EXTRA_DIST = \
 	include/auto/README		\
-	schism/charset_data.c   \
 	$(docs)	\
 	$(helptexts)			\
 	$(fonts)			\
@@ -188,7 +187,7 @@ lib_win32=-lwinmm
 
 if USE_MEDIAFOUNDATION
 files_mediafoundation=fmt/win32mf.c
-lib_mediafoundation=-lmf -lmfuuid -lmfplat -lpropsys -lole32 -lshlwapi
+lib_mediafoundation=-lole32 -lmfuuid
 endif
 
 if HAVE_WINDRES
@@ -280,6 +279,7 @@ endif
 schismtracker_SOURCES = \
 	schism/page_blank.c		\
 	schism/charset.c		\
+	schism/charset_data.c   \
 	schism/sample-edit.c		\
 	schism/dmoz.c			\
 	schism/page_info.c		\

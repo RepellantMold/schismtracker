@@ -481,8 +481,8 @@ static void pop_pending_keydown_event(const uint8_t* text) {
 	 * should be in CP437 */
 	if (have_pending_keydown) {
 		pending_keydown.text = text;
-		handle_key(&pending_keydown);
 		cache_key_repeat(&pending_keydown);
+		handle_key(&pending_keydown);
 		have_pending_keydown = 0;
 	}
 }
@@ -941,6 +941,8 @@ void schism_exit(int status)
 	if (shutdown_process & EXIT_HOOK)
 		run_exit_hook();
 #endif
+
+	free_audio_device_list();
 
 	if (shutdown_process & EXIT_SAVECFG)
 		cfg_atexit_save();
