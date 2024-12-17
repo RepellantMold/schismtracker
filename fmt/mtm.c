@@ -95,7 +95,7 @@ static void mtm_unpack_track(const uint8_t *b, song_note_t *note, int rows)
 int fmt_mtm_load_song(song_t *song, slurp_t *fp, unsigned int lflags)
 {
 	uint8_t b[192];
-	uint8_t nchan, nord, npat, nsmp;
+	uint8_t nchan, nord, npat, nsmp, attrib;
 	uint16_t ntrk, comment_len;
 	int n, pat, chan, smp, rows, todo = 0;
 	song_note_t *note;
@@ -120,7 +120,9 @@ int fmt_mtm_load_song(song_t *song, slurp_t *fp, unsigned int lflags)
 	comment_len = bswapLE16(comment_len);
 
 	nsmp = slurp_getc(fp);
-	slurp_getc(fp); /* attribute byte (unused) */
+	attrib = slurp_getc(fp); /* attribute byte (unused) */
+	if (attrib == 'J')
+		sprintf(song->tracker_id, "Schism Tracker");
 	rows = slurp_getc(fp); /* beats per track (translation: number of rows in every pattern) */
 	if (rows != 64)
 		todo |= 64;
