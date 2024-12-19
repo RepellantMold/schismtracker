@@ -120,15 +120,14 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 	if (checksum != (~version + 0x1234))
 		return 0;
 
-	// XXX what should we do if multiple sound blocks appear?
-	// discard them? concatenate them?
 	while(voc_block_fmt_read(&block, fp)) {
 		uint32_t flags = SF_LE;
+		uint32_t loop_start, loop_end;
+		uint32_t c5speed = 8363;
+		uint32_t length = block.header.length;
 		slurp_t fp2;
 		slurp_memstream(&fp2, (uint8_t*)block.data, block.header.length);
-		song_sample_t *smp = song_get_sample(audio_occurences);
-		smp->flags = 0;
-		smp->length = block.header.length;
+		song_sample_t *smp = NULL;
 
 		switch(block.header.type) {
 #if 0
@@ -138,30 +137,25 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 				slurp_read(&fp2, tmp, 2);
 				if (tmp[0] != 0xFF && tmp[1] != 0xFF)
 					log_appendf(4, " Warning: limited loop counts are not supported!");
-				smp->loop_start = slurp_tell(fp);
+				loop_start = slurp_tell(fp);
 				break;
 			case VOC_BLOCK_REPEAT_END:
-				smp->loop_end = slurp_tell(fp);
-				if (smp->loop_end < smp->loop_start)
-					smp->loop_end = smp->loop_start = 0; // that was crap
-				else
-					smp->flags |= CHN_LOOP;
+				loop_end = slurp_tell(fp);
 				break;
 #endif
 
 			case VOC_BLOCK_SOUND_NEW:
 				uint16_t tmp_codec;
 				uint32_t tmp_sample_rate;
-				audio_occurences++;
+				smp = song_get_sample(audio_occurences++);
 				slurp_read(&fp2, &tmp_sample_rate, sizeof(uint32_t));
 				block.audio.sample_rate = bswapLE32(tmp_sample_rate);
 				block.audio.bit_depth = slurp_getc(&fp2);
 				block.audio.channel_count = slurp_getc(&fp2);
-				smp->c5speed = block.audio.sample_rate;
-				smp->length -= 12;
+				c5speed = block.audio.sample_rate;
+				length -= 12;
 				slurp_read(&fp2, &tmp_codec, sizeof(uint16_t));
-				tmp_codec = bswapLE16(tmp_codec);
-				block.audio.codec = tmp_codec;
+				block.audio.codec = bswapLE16(tmp_codec);
 				switch (block.audio.codec) {
 				case VOC_8BIT_UNSIGNED_PCM:
 					flags |= SF_PCMU;
@@ -170,14 +164,20 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 					flags |= SF_PCMS;
 					break;
 				default: // TODO: alaw and mulaw/ADPCM decoding
+				failed_read:
+					//log_appendf(4, "i'm died");
+					unslurp(&fp2);
+					free(block.data);
+					instrument_loader_abort(&ii);
 					return 0;
 					break;
-				}
-				// why the hell does this exist when the codec type byte exists?!?!
+				}			
 				if (block.audio.bit_depth == 8)
 					flags |= SF_8;
 				else if (block.audio.bit_depth == 16)
 					flags |= SF_16;
+				else if (block.audio.bit_depth == 24)
+					flags |= SF_24;
 				slurp_seek(&fp2, 4, SEEK_CUR); // reserved
 				goto read_sample;
 				break;
@@ -185,16 +185,16 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 			case VOC_BLOCK_SOUND_EXTRA:
 			case VOC_BLOCK_SOUND:
 				uint8_t tmp_divisor[2];
-				audio_occurences++;
+				smp = song_get_sample(audio_occurences++);
 				tmp_divisor[0] = slurp_getc(&fp2);
 				if (block.header.type == VOC_BLOCK_SOUND_EXTRA) {
 					tmp_divisor[1] = slurp_getc(&fp2);
 					block.audio.frequency_divisor = (tmp_divisor[0] << 8) + tmp_divisor[1];
-					smp->length -= 4;
+					length -= 4;
 				} else {
 					block.audio.frequency_divisor = tmp_divisor[0];
-					smp->c5speed = 1000000 / (256 - block.audio.frequency_divisor);
-					smp->length -= 2;
+					c5speed = 1000000 / (256 - block.audio.frequency_divisor);
+					length -= 2;
 				}
 				block.audio.codec = slurp_getc(&fp2);
 				switch (block.audio.codec) {
@@ -205,17 +205,20 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 					flags |= SF_PCMS | SF_16;
 					break;
 				default: // TODO: alaw and mulaw/ADPCM decoding
-					return 0;
+					goto failed_read;
 					break;
 				}
 				if (block.header.type == VOC_BLOCK_SOUND_EXTRA) {
 					block.audio.channel_count = slurp_getc(&fp2);
 					flags |= block.audio.channel_count ? SF_SI : SF_M;
-					smp->c5speed =  256000000 / ((block.audio.channel_count + 1) * (65536 - block.audio.frequency_divisor));
+					c5speed =  256000000 / ((block.audio.channel_count + 1) * (65536 - block.audio.frequency_divisor));
 				} else {
 					flags |= SF_M;
 				}
-				goto read_sample;
+				if (block.header.type == VOC_BLOCK_SOUND)
+					goto read_sample;
+				else if (block.header.type == VOC_BLOCK_SOUND_EXTRA)
+					continue; // no audio comes after...
 				break;
 			
 			case VOC_BLOCK_TEXT:
@@ -227,6 +230,19 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 			case VOC_BLOCK_TERMINATOR: default: break;
 			case VOC_BLOCK_SOUND_WITHOUT_TYPE:
 			read_sample:
+				if (smp == NULL) goto failed_read;
+				smp->flags = 0;
+				smp->c5speed = c5speed;
+				smp->length = block.header.length;
+				if (loop_end <= loop_start) {
+					smp->loop_end = smp->loop_start = 0; // that was crap
+				} else {
+					smp->loop_start = loop_start;
+					smp->loop_end = loop_end;
+					smp->flags |= CHN_LOOP;
+				}
+
+				csf_read_sample(smp, flags, fp);
 				instrument_loader_sample(&ii, audio_occurences + 1);
 				break;
 		}
