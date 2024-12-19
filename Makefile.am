@@ -315,7 +315,8 @@ files_macosx = \
 	sys/macosx/ibook-support.c	\
 	sys/macosx/midi-macosx.c	\
 	sys/macosx/osdefs.c \
-	sys/macosx/clippy.m
+	sys/macosx/clippy.m \
+	sys/macosx/dmoz.m
 cflags_macosx=
 libs_macosx=$(OSX_LDADD)
 endif
@@ -379,6 +380,9 @@ files_stdlib += sys/stdlib/setenv.c
 endif
 if NEED_UNSETENV
 files_stdlib += sys/stdlib/unsetenv.c
+endif
+if NEED_GETOPT
+files_stdlib += sys/stdlib/getopt.c
 endif
 
 ## aaaaaaaaahhhhhhhhhhhhhhhhhhh!!!!!!!1
