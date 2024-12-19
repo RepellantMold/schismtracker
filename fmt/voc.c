@@ -82,10 +82,10 @@ static int voc_block_fmt_read(struct voc_block *block, slurp_t *fp)
 
 	if ((block->header.type = slurp_getc(fp)) == EOF)
 		return 0;
-	if (slurp_read(fp, &b, 3) != 3)
+	if (slurp_read(fp, b, 3) != 3)
 		return 0;
 	block->header.length = (b[2] << 16) | (b[1] << 8) | (b[0]);
-	log_appendf(3, "size:%d block type:%d", block->header.length, block->header.type);
+	//log_appendf(3, "size:%d block type:%d", block->header.length, block->header.type);
 	block->data = mem_calloc(block->header.length, 1);
 	if (slurp_eof(fp) || 
 		slurp_read(fp, block->data, block->header.length) != block->header.length)
@@ -106,9 +106,10 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 	song_instrument_t *g = instrument_loader_init(&ii, slot);
 	int audio_occurences = 0;
 
-	slurp_read(fp, &sig, 20);
-	if (memcmp(&sig, "Creative Voice File\x1A", 20) != 0)
+	slurp_read(fp, sig, 20);
+	if (memcmp(sig, "Creative Voice File\x1A", 20) != 0)
 		return 0;
+
 	slurp_seek(fp, 2, SEEK_CUR); // size of main header
 	slurp_read(fp, &version, 2);
 	version = bswapLE16(version);
@@ -124,7 +125,7 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 	while(voc_block_fmt_read(&block, fp)) {
 		uint32_t flags = SF_LE;
 		slurp_t fp2;
-		slurp_memstream(&fp2, (uint8_t*)&block.data, block.header.length);
+		slurp_memstream(&fp2, (uint8_t*)block.data, block.header.length);
 		song_sample_t *smp = song_get_sample(audio_occurences);
 		smp->flags = 0;
 		smp->length = block.header.length;
@@ -134,7 +135,7 @@ static int voc_load(slurp_t *fp, int slot, int load_sample)
 			// TODO: check if i'm correct on this...
 			case VOC_BLOCK_REPEAT_START:
 				uint8_t tmp[2];
-				slurp_read(&fp2, &tmp, 2);
+				slurp_read(&fp2, tmp, 2);
 				if (tmp[0] != 0xFF && tmp[1] != 0xFF)
 					log_appendf(4, " Warning: limited loop counts are not supported!");
 				smp->loop_start = slurp_tell(fp);
@@ -249,7 +250,6 @@ int fmt_voc_load_instrument(slurp_t *fp, int slot)
 
 int fmt_voc_read_info(dmoz_file_t *file, slurp_t *fp)
 {
-	struct voc_block block = {0};
 	if (!voc_load(fp, 1, 0))
 		return 0;
 
