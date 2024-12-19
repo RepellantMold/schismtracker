@@ -24,6 +24,10 @@
 #include "headers.h"
 #include "bswap.h"
 #include "fmt.h"
+#include "it.h"
+#include "song.h"
+
+#include "player/sndfile.h"
 
 #include "log.h"
 
@@ -92,12 +96,15 @@ static int voc_block_fmt_read(struct voc_block *block, slurp_t *fp)
 
 /* --------------------------------------------------------------------------------------------------------- */
 
-static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
+static int voc_load(slurp_t *fp, int slot, int load_sample)
 {
 	char sig[20];
 	uint16_t version;
 	uint16_t checksum;
 	struct voc_block block = {0};
+	struct instrumentloader ii;
+	song_instrument_t *g = instrument_loader_init(&ii, slot);
+	int audio_occurences = 0;
 
 	slurp_read(fp, &sig, 20);
 	if (memcmp(&sig, "Creative Voice File\x1A", 20) != 0)
@@ -118,24 +125,33 @@ static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
 		uint32_t flags = SF_LE;
 		slurp_t fp2;
 		slurp_memstream(&fp2, (uint8_t*)&block.data, block.header.length);
+		song_sample_t *smp = song_get_sample(audio_occurences);
+		smp->flags = 0;
 		smp->length = block.header.length;
 
 		switch(block.header.type) {
 #if 0
-			// how?
+			// TODO: check if i'm correct on this...
 			case VOC_BLOCK_REPEAT_START:
 				uint8_t tmp[2];
 				slurp_read(&fp2, &tmp, 2);
 				if (tmp[0] != 0xFF && tmp[1] != 0xFF)
 					log_appendf(4, " Warning: limited loop counts are not supported!");
+				smp->loop_start = slurp_tell(fp);
 				break;
 			case VOC_BLOCK_REPEAT_END:
+				smp->loop_end = slurp_tell(fp);
+				if (smp->loop_end < smp->loop_start)
+					smp->loop_end = smp->loop_start = 0; // that was crap
+				else
+					smp->flags |= CHN_LOOP;
 				break;
 #endif
 
 			case VOC_BLOCK_SOUND_NEW:
 				uint16_t tmp_codec;
 				uint32_t tmp_sample_rate;
+				audio_occurences++;
 				slurp_read(&fp2, &tmp_sample_rate, sizeof(uint32_t));
 				block.audio.sample_rate = bswapLE32(tmp_sample_rate);
 				block.audio.bit_depth = slurp_getc(&fp2);
@@ -156,7 +172,7 @@ static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
 					return 0;
 					break;
 				}
-				// why does this exist when the codec type byte exists?!?!
+				// why the hell does this exist when the codec type byte exists?!?!
 				if (block.audio.bit_depth == 8)
 					flags |= SF_8;
 				else if (block.audio.bit_depth == 16)
@@ -168,7 +184,7 @@ static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
 			case VOC_BLOCK_SOUND_EXTRA:
 			case VOC_BLOCK_SOUND:
 				uint8_t tmp_divisor[2];
-				
+				audio_occurences++;
 				tmp_divisor[0] = slurp_getc(&fp2);
 				if (block.header.type == VOC_BLOCK_SOUND_EXTRA) {
 					tmp_divisor[1] = slurp_getc(&fp2);
@@ -201,15 +217,16 @@ static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
 				goto read_sample;
 				break;
 			
-			case VOC_BLOCK_MARKER:
 			case VOC_BLOCK_TEXT:
+				strncpy(smp->name, block.data, MAX(21, slurp_length(&fp2)));
+				break;
+			case VOC_BLOCK_MARKER:
 			case VOC_BLOCK_SILENCE:
 				continue;
 			case VOC_BLOCK_TERMINATOR: default: break;
 			case VOC_BLOCK_SOUND_WITHOUT_TYPE:
 			read_sample:
-				if (load_sample)
-					csf_read_sample(smp, flags, &fp2);
+				instrument_loader_sample(&ii, audio_occurences + 1);
 				break;
 		}
 
@@ -222,24 +239,21 @@ static int voc_load(song_sample_t *smp, slurp_t *fp, int load_sample)
 
 /* --------------------------------------------------------------------------------------------------------- */
 
-int fmt_voc_load_sample(slurp_t *fp, song_sample_t *smp)
+int fmt_voc_load_instrument(slurp_t *fp, int slot)
 {
-	return voc_load(smp, fp, 1);
+	if (!slot)
+		return 0;
+
+	return voc_load(fp, slot, 1);
 }
 
 int fmt_voc_read_info(dmoz_file_t *file, slurp_t *fp)
 {
-	song_sample_t smp;
-	if (!voc_load(&smp, fp, 0))
+	struct voc_block block = {0};
+	if (!voc_load(fp, 1, 0))
 		return 0;
 
-	file->smp_flags  = smp.flags;
-	file->smp_speed  = smp.c5speed;
-	file->smp_length = smp.length;
-
 	file->description  = "Creative VOC";
-	file->type         = TYPE_SAMPLE_PLAIN;
-	file->smp_filename = file->base;
-
+	file->type         = TYPE_INST_XI;
 	return 1;
 }
