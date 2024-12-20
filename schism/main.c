@@ -89,11 +89,6 @@ static int did_classic = 0;
 
 #define SDL_INIT_FLAGS SDL_INIT_TIMER | SDL_INIT_VIDEO
 
-static void display_init(void)
-{
-	video_startup();
-}
-
 static void check_update(void);
 
 void toggle_display_fullscreen(void)
@@ -949,7 +944,7 @@ int schism_main(int argc, char** argv)
 	shutdown_process |= EXIT_SAVECFG;
 	shutdown_process |= EXIT_SDLQUIT;
 
-	display_init();
+	video_startup();
 	if (want_fullscreen >= 0)
 		video_fullscreen(want_fullscreen);
 
@@ -1115,7 +1110,7 @@ have_utf8_args: ;
 	return 0;
 }
 #elif defined(SCHISM_MACOSX)
-// handled in its own file
+// sys/macosx/macosx-sdlmain.m
 #else
 int main(int argc, char **argv)
 {
