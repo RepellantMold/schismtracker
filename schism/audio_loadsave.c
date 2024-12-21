@@ -409,30 +409,23 @@ static const struct save_format *get_save_format(const struct save_format *forma
 
 static char *mangle_filename(const char *in, const char *mid, const char *ext)
 {
-	char *ret;
-	const char *iext;
-	size_t baselen, rlen;
+	// will always return a valid pointer
+	const char *iext = dmoz_path_get_extension(in);
 
-	iext = dmoz_path_get_extension(in);
-	rlen = baselen = iext - in;
-	if (mid)
-		rlen += strlen(mid);
-	if (iext[0])
-		rlen += strlen(iext);
+	const size_t baselen = iext - in;
+	const size_t midlen = (mid) ? strlen(mid) : 0;
+	const size_t extlen = (*iext) ? strlen(iext) : ((ext) ? strlen(ext) : 0);
+
+	char *ret = mem_alloc(baselen + midlen + extlen + 1); /* room for terminating \0 */
+
+	memcpy(ret, in, baselen);
+	memcpy(ret + baselen, mid, midlen);
+	if (*iext)
+		memcpy(ret + baselen + midlen, iext, extlen);
 	else if (ext)
-		rlen += strlen(ext);
-	ret = malloc(rlen + 1); /* room for terminating \0 */
-	if (!ret)
-		return NULL;
-	strncpy(ret, in, baselen);
-	ret[baselen] = '\0';
-	if (mid)
-		strcat(ret, mid);
-	/* maybe output a warning if iext and ext differ? */
-	if (iext[0])
-		strcat(ret, iext);
-	else if (ext)
-		strcat(ret, ext);
+		memcpy(ret + baselen + midlen, ext, extlen);
+	ret[baselen + midlen + extlen] = '\0';
+
 	return ret;
 }
 
@@ -1007,7 +1000,8 @@ int dmoz_read_sample_library(const char *path, dmoz_filelist_t *flist, SCHISM_UN
 		return -1;
 	}
 
-	/* ask dmoz what type of file we have */
+	/* ask dmoz what type of file we have
+	 * FIXME use slurp and read info funcs manually */
 	dmoz_file_t info_file = {0};
 	info_file.path = str_dup(path);
 	info_file.filesize = st.st_size;
@@ -1031,12 +1025,15 @@ int dmoz_read_sample_library(const char *path, dmoz_filelist_t *flist, SCHISM_UN
 	if (info_file.type & TYPE_MODULE_MASK) {
 		library = song_create_load(path);
 	} else if (info_file.type & TYPE_INST_MASK) {
-		/* temporarily set the current song to the library */
+		/* temporarily set the current song to the library; song_load_instrument
+		 * is hardcoded to it */
+		song_lock_audio();
 		song_t* tmp_ptr = current_song;
 		library = current_song = csf_allocate();
 
 		int ret = song_load_instrument(1, path);
 		current_song = tmp_ptr;
+		song_unlock_audio();
 		if (!ret) {
 			log_appendf(4, "song_load_instrument: %s failed with %d", path, ret);
 			return 1;
